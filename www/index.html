@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Método Exemplo · Página de demonstração</title>
+		<style>
+			:root {
+				color-scheme: light;
+				--ink: #1d1b26;
+				--muted: #5d5a6b;
+				--brand: #e8590c;
+				--line: #e7e3ee;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+				color: var(--ink);
+				background: #fbfaf7;
+				line-height: 1.55;
+			}
+			header,
+			main section,
+			footer {
+				max-width: 980px;
+				margin: 0 auto;
+				padding: 0 20px;
+			}
+			nav {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 18px 0;
+			}
+			nav a {
+				color: var(--muted);
+				text-decoration: none;
+				margin-left: 18px;
+				font-weight: 600;
+			}
+			.logo {
+				font-weight: 800;
+				color: var(--ink);
+				margin: 0;
+			}
+			.hero {
+				padding: 64px 20px 48px;
+				text-align: center;
+			}
+			.hero h1 {
+				font-size: clamp(30px, 5vw, 48px);
+				line-height: 1.1;
+				margin: 0 0 14px;
+			}
+			.hero p {
+				color: var(--muted);
+				font-size: 18px;
+				max-width: 620px;
+				margin: 0 auto 28px;
+			}
+			.cta {
+				display: inline-flex;
+				gap: 12px;
+				flex-wrap: wrap;
+				justify-content: center;
+			}
+			.button {
+				display: inline-block;
+				padding: 14px 24px;
+				border-radius: 10px;
+				border: 2px solid var(--brand);
+				background: var(--brand);
+				color: #fff;
+				font-size: 16px;
+				font-weight: 700;
+				text-decoration: none;
+				cursor: pointer;
+			}
+			.button.secondary {
+				background: transparent;
+				color: var(--brand);
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+				gap: 18px;
+				padding: 32px 20px;
+			}
+			.card {
+				background: #fff;
+				border: 1px solid var(--line);
+				border-radius: 14px;
+				padding: 22px;
+			}
+			.card h3 {
+				margin: 0 0 6px;
+			}
+			.price {
+				font-size: 28px;
+				font-weight: 800;
+				margin: 10px 0 16px;
+			}
+			form {
+				display: grid;
+				gap: 12px;
+				max-width: 460px;
+			}
+			input,
+			select {
+				padding: 12px 14px;
+				border: 1px solid var(--line);
+				border-radius: 10px;
+				font-size: 15px;
+			}
+			.consent {
+				display: flex;
+				gap: 8px;
+				align-items: flex-start;
+				font-size: 14px;
+				color: var(--muted);
+			}
+			footer {
+				padding: 40px 20px;
+				color: var(--muted);
+				border-top: 1px solid var(--line);
+				margin-top: 40px;
+			}
+			.note {
+				max-width: 980px;
+				margin: 0 auto;
+				padding: 10px 20px;
+				font-size: 13px;
+				color: var(--muted);
+			}
+		</style>
+
+		<!--
+			Pixel do Pulse, como o cliente instala. No modo de configuração, o
+			token chega no link (#pulse_setup=...) e a chave não importa.
+			Para testar o modo normal (eventos e leads), troque PX_DEMO pela chave
+			do pixel mostrada na tela de Rastreamento.
+		-->
+		<script async src="/p/v1.js" data-pixel="PX_ZwJPdM5D8LpTY0ucxZjC" data-api="http://localhost:3001"></script>
+	</head>
+	<body>
+		<header>
+			<nav>
+				<p class="logo">Método Exemplo</p>
+				<div>
+					<a href="#beneficios">Benefícios</a>
+					<a href="#planos">Planos</a>
+					<a href="#inscricao" class="nav-cta">Inscreva-se</a>
+				</div>
+			</nav>
+		</header>
+
+		<main>
+			<section class="hero">
+				<h1>Aprenda a vender todos os dias pelo Instagram</h1>
+				<p>Um método passo a passo para transformar seguidores em clientes, mesmo começando do zero.</p>
+				<div class="cta">
+					<button id="comprar" class="button" type="button" onclick="alert('Indo para o checkout…')">
+						Quero comprar agora
+					</button>
+					<a class="button secondary" href="https://wa.me/5511999999999" target="_blank" rel="noreferrer">
+						Falar no WhatsApp
+					</a>
+				</div>
+			</section>
+
+			<section id="beneficios" class="grid">
+				<div class="card">
+					<h3>Conteúdo que vende</h3>
+					<p>Roteiros prontos de Reels e stories para cada etapa da jornada.</p>
+				</div>
+				<div class="card">
+					<h3>Direct no automático</h3>
+					<p>Respostas que levam a pessoa do comentário até a compra.</p>
+				</div>
+				<div class="card">
+					<h3>Comunidade</h3>
+					<p>Encontros ao vivo toda semana para tirar dúvidas.</p>
+				</div>
+			</section>
+
+			<section id="planos" class="grid">
+				<div class="card">
+					<h3>Essencial</h3>
+					<p class="price">R$ 297</p>
+					<!-- Sem id: testa a seleção pelo caminho na página. -->
+					<button class="button" type="button" onclick="alert('Plano Essencial')">Escolher Essencial</button>
+				</div>
+				<div class="card">
+					<h3>Completo</h3>
+					<p class="price">R$ 597</p>
+					<button class="button" type="button" data-testid="plano-completo" onclick="alert('Plano Completo')">
+						Escolher Completo
+					</button>
+				</div>
+				<div class="card">
+					<h3>Mentoria</h3>
+					<p class="price">Sob consulta</p>
+					<a class="button secondary" href="#agendar" data-testid="agendar-mentoria">Agendar conversa</a>
+				</div>
+			</section>
+
+			<section id="inscricao">
+				<h2>Receba a aula gratuita</h2>
+				<form name="aula-gratuita" onsubmit="event.preventDefault(); alert('Inscrição enviada!')">
+					<input name="nome" placeholder="Seu nome" autocomplete="name" required />
+					<input name="email" type="email" placeholder="Seu melhor e-mail" autocomplete="email" required />
+					<input name="whatsapp" type="tel" placeholder="Seu WhatsApp com DDD" autocomplete="tel" />
+					<select name="origem" aria-label="Como nos conheceu?">
+						<option value="">Como nos conheceu?</option>
+						<option>Instagram</option>
+						<option>Indicação</option>
+						<option>Anúncio</option>
+					</select>
+					<!-- Nunca aparece no editor: senhas não são mapeáveis. -->
+					<input name="senha" type="password" placeholder="Crie uma senha (teste)" />
+					<label class="consent">
+						<input name="lgpd" type="checkbox" required />
+						Concordo em receber conteúdos e com a política de privacidade.
+					</label>
+					<button class="button" type="submit">Quero a aula gratuita</button>
+				</form>
+			</section>
+		</main>
+
+		<footer>© Método Exemplo · Página de demonstração do pixel do Pulse</footer>
+	</body>
+</html>
