@@ -1,0 +1,20 @@
+[build]
+  command = "if [ -z \"$PULSE_API_URL\" ]; then echo 'Defina PULSE_API_URL nas variáveis do Netlify'; exit 1; fi; npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[[headers]]
+  for = "/p/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=300, stale-while-revalidate=86400"
+    X-Content-Type-Options = "nosniff"
+    Cross-Origin-Resource-Policy = "cross-origin"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
