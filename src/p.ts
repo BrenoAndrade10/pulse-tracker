@@ -80,6 +80,9 @@ function loadEditor(script: HTMLScriptElement, api: string, token: string) {
 	document.head.appendChild(editor);
 }
 
+const canonicalPage = (url: string): string =>
+	url.toLowerCase().replace('://www.', '://').replace(/\/+$/, '');
+
 const uuid = (): string =>
 	crypto.randomUUID?.() ??
 	'10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -160,7 +163,7 @@ class Pixel {
 				// Sem regras: continua só com PageView.
 			});
 
-		document.addEventListener('click', this.onClick, { capture: true, passive: true });
+		addEventListener('click', this.onClick, { capture: true, passive: true });
 		document.addEventListener('submit', this.onSubmit, { capture: true });
 		addEventListener('pagehide', () => this.flush());
 		document.addEventListener('visibilitychange', () => {
@@ -194,21 +197,28 @@ class Pixel {
 	}
 
 	private rulesFor(trigger: Rule['trigger']): Rule[] {
-		const page = this.pageUrl();
+		const page = canonicalPage(this.pageUrl());
 		return this.rules.filter(
-			(rule) => rule.trigger === trigger && (rule.scope === 'site' || rule.pageUrl === page)
+			(rule) =>
+				rule.trigger === trigger &&
+				(rule.scope === 'site' || canonicalPage(rule.pageUrl) === page)
 		);
 	}
 
 	private readonly onClick = (event: MouseEvent): void => {
 		if (!(event.target instanceof Element)) return;
+		let matched = false;
 		for (const rule of this.rulesFor('click')) {
 			try {
-				if (event.target.closest(rule.selector)) this.track('Rule', rule.id);
+				if (event.target.closest(rule.selector)) {
+					this.track('Rule', rule.id);
+					matched = true;
+				}
 			} catch {
 				// Seletor inválido nesta página: ignora a regra.
 			}
 		}
+		if (matched) this.flush();
 	};
 
 	/** Lê só os campos mapeados na regra; senhas e cartões nunca são mapeáveis. */
