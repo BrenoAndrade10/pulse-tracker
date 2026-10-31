@@ -1,14 +1,4 @@
-/**
- * Pixel do Pulse. Instalado pelo cliente em todas as páginas:
- *   <script async src=".../p/v1.js" data-pixel="PX_..."></script>
- *
- * Modo normal: PageView, cliques e envios de formulário das regras.
- * Modo de configuração: aberto pelo Pulse com `#pulse_setup=<token>`, carrega
- * o editor visual por cima da página (e não registra nada).
- *
- * Consentimento: com `data-consent="required"`, nada é enviado nem o cookie é
- * criado até a página chamar `pulse('consent', 'granted')`.
- */
+import { isSensitive, looksLikeCard } from './sensitive';
 
 type RuleField = { slug: string; key: string; selector: string };
 type Rule = {
@@ -41,11 +31,6 @@ const MAX_BATCH = 20;
 const FLUSH_MS = 2000;
 const UTM_KEYS = ['source', 'medium', 'campaign', 'content', 'term'];
 
-/**
- * Token do modo de configuração. Sai da barra de endereço na hora (não fica
- * em prints nem em links compartilhados) e fica só nesta aba: recarregar ou
- * navegar pelo site mantém o editor aberto, fechar a aba encerra.
- */
 function takeSetupToken(): string | null {
 	const match = new RegExp(`(?:^#|&)${SETUP_PARAM}=([\\w-]+)`).exec(location.hash);
 
@@ -53,7 +38,7 @@ function takeSetupToken(): string | null {
 		try {
 			sessionStorage.setItem(SETUP_STORAGE_KEY, match[1]);
 		} catch {
-			// Sem sessionStorage (ex.: bloqueado): o editor funciona até recarregar.
+			//
 		}
 		history.replaceState(history.state, '', location.pathname + location.search);
 		return match[1];
@@ -99,7 +84,6 @@ function session(key: string, create: () => string): string {
 	}
 }
 
-/** Identificador anônimo do visitante: cookie primário, 12 meses. */
 function anonymousId(): string {
 	const match = document.cookie.match(new RegExp(`(?:^|; )${COOKIE}=([\\w-]+)`));
 	if (match) return match[1];
@@ -109,7 +93,6 @@ function anonymousId(): string {
 	return id;
 }
 
-/** UTMs e fbclid da primeira página da sessão: o cadastro herda a origem da visita. */
 function attribution(): { utm: Record<string, string>; fbclid?: string } {
 	const params = new URLSearchParams(location.search);
 	const current: { utm: Record<string, string>; fbclid?: string } = { utm: {} };
@@ -127,7 +110,7 @@ function attribution(): { utm: Record<string, string>; fbclid?: string } {
 			sessionStorage.setItem('pulse:attribution', JSON.stringify(current));
 		}
 	} catch {
-		// Sem sessionStorage: vale a origem desta página.
+		//
 	}
 	return current;
 }
@@ -136,6 +119,7 @@ class Pixel {
 	private queue: PulseEvent[] = [];
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private rules: Rule[] = [];
+	private readonly rulesByPage = new Map<string, Rule[]>();
 	private lastPage = '';
 	private started = false;
 	private stopped = false;
@@ -147,21 +131,11 @@ class Pixel {
 		private readonly key: string
 	) {}
 
-	/** Começa a registrar (já com consentimento, quando exigido). */
 	start(): void {
 		this.stopped = false;
 		if (this.started) return;
 		this.started = true;
 		this.aid = anonymousId();
-
-		void fetch(`${this.api}/t/${this.key}/config`, { credentials: 'omit' })
-			.then((response) => (response.ok ? (response.json() as Promise<{ rules: Rule[] }>) : null))
-			.then((config) => {
-				this.rules = config?.rules ?? [];
-			})
-			.catch(() => {
-				// Sem regras: continua só com PageView.
-			});
 
 		addEventListener('click', this.onClick, { capture: true, passive: true });
 		document.addEventListener('submit', this.onSubmit, { capture: true });
@@ -170,7 +144,6 @@ class Pixel {
 			if (document.visibilityState === 'hidden') this.flush();
 		});
 
-		// Sites que trocam de página sem recarregar (SPA).
 		for (const method of ['pushState', 'replaceState'] as const) {
 			const original = history[method];
 			history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
@@ -193,7 +166,27 @@ class Pixel {
 		const page = this.pageUrl();
 		if (page === this.lastPage) return;
 		this.lastPage = page;
+		this.loadRules(page);
 		this.track('PageView');
+	}
+
+	private loadRules(page: string): void {
+		const cached = this.rulesByPage.get(page);
+		if (cached) {
+			this.rules = cached;
+			return;
+		}
+
+		void fetch(`${this.api}/t/${this.key}/config?page=${encodeURIComponent(page)}`, { credentials: 'omit' })
+			.then((response) => (response.ok ? (response.json() as Promise<{ rules: Rule[] }>) : null))
+			.then((config) => {
+				if (!config) return;
+				this.rulesByPage.set(page, config.rules);
+				if (page === this.lastPage) this.rules = config.rules;
+			})
+			.catch(() => {
+
+			});
 	}
 
 	private rulesFor(trigger: Rule['trigger']): Rule[] {
@@ -215,13 +208,12 @@ class Pixel {
 					matched = true;
 				}
 			} catch {
-				// Seletor inválido nesta página: ignora a regra.
+				// 
 			}
 		}
 		if (matched) this.flush();
 	};
 
-	/** Lê só os campos mapeados na regra; senhas e cartões nunca são mapeáveis. */
 	private readonly onSubmit = (event: SubmitEvent): void => {
 		const form = event.target;
 		if (!(form instanceof HTMLFormElement)) return;
@@ -239,16 +231,20 @@ class Pixel {
 			for (const field of rule.fields) {
 				try {
 					const element = form.querySelector(field.selector);
+
+					if (!element || isSensitive(element)) continue;
+
 					if (element instanceof HTMLInputElement && element.type === 'checkbox') {
 						values[field.slug] = element.checked;
 					} else if (element instanceof HTMLInputElement && element.type === 'radio') {
 						const checked = form.querySelector<HTMLInputElement>(`${field.selector}:checked`);
-						if (checked) values[field.slug] = checked.value;
+						if (checked && !isSensitive(checked)) values[field.slug] = checked.value;
 					} else if (
 						element instanceof HTMLInputElement ||
 						element instanceof HTMLSelectElement ||
 						element instanceof HTMLTextAreaElement
 					) {
+						if (field.key === 'custom' && looksLikeCard(element.value)) continue;
 						if (element.value) values[field.slug] = element.value.slice(0, 500);
 					}
 				} catch {
@@ -258,11 +254,9 @@ class Pixel {
 
 			this.track('Rule', rule.id, Object.keys(values).length ? { values } : undefined);
 		}
-		// O formulário vai sair da página: envia já.
 		this.flush();
 	};
 
-	/** Consentimento retirado: para de enviar e apaga o identificador. */
 	stop(): void {
 		this.stopped = true;
 		this.queue = [];
@@ -290,7 +284,6 @@ class Pixel {
 		else if (!this.timer) this.timer = setTimeout(() => this.flush(), FLUSH_MS);
 	}
 
-	/** Envia com sendBeacon: não trava a página e sobrevive à saída dela. */
 	flush(): void {
 		clearTimeout(this.timer);
 		this.timer = undefined;
@@ -309,7 +302,7 @@ class Pixel {
 					credentials: 'omit',
 					headers: { 'Content-Type': 'text/plain' }
 				}).catch(() => {
-					// Sem rede: o evento se perde, a página continua normal.
+					// 
 				});
 			}
 		}

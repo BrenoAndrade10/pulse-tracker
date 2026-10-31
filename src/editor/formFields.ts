@@ -1,3 +1,5 @@
+import { isSensitive, SECRET } from '../sensitive';
+
 /** O que guardar de cada campo do formulário no lead. */
 export type FieldKey = 'name' | 'email' | 'phone' | 'consent' | 'custom' | 'skip';
 
@@ -12,9 +14,7 @@ export type DetectedField = {
 	isCheckbox: boolean;
 };
 
-/** Nunca mapeáveis: senhas, cartões e afins não aparecem nem na lista. */
-const SECRET = /senha|password|passwd|pin\b|cart[aã]o|card|cvv|cvc|security|seguran[cç]a/i;
-const SKIPPED_TYPES = new Set(['password', 'hidden', 'file', 'submit', 'button', 'reset', 'image']);
+const SKIPPED_TYPES = new Set(['submit', 'button', 'reset', 'image']);
 
 function labelOf(control: HTMLElement): string {
 	const id = control.getAttribute('id');
@@ -90,10 +90,8 @@ export function detectFields(form: HTMLFormElement): DetectedField[] {
 		}
 		if (control instanceof HTMLInputElement && SKIPPED_TYPES.has(control.type)) continue;
 
-		const autocomplete = control.getAttribute('autocomplete') ?? '';
 		const label = labelOf(control);
-		const identity = `${label} ${control.getAttribute('name') ?? ''} ${control.getAttribute('id') ?? ''}`;
-		if (autocomplete.startsWith('cc-') || SECRET.test(identity)) continue;
+		if (isSensitive(control) || SECRET.test(label)) continue;
 
 		const selector = selectorOf(control, form);
 		if (!selector || seen.has(selector)) continue;
