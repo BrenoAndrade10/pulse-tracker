@@ -1,3 +1,6 @@
 node_modules
 dist
 www/p
+.yarn
+.pnp.*
+yarn.lock
