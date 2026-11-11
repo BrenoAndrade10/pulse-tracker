@@ -19,7 +19,17 @@ type PulseEvent = {
 	sid: string;
 	utm: Record<string, string>;
 	fbclid?: string;
+	pl?: string;
+	fbp?: string;
+	fbc?: string;
 	lead?: { values: Record<string, string | boolean> };
+};
+type Attribution = {
+	utm: Record<string, string>;
+	fbclid?: string;
+	pl?: string;
+	fbc?: string;
+	fbclidCapturedAt?: number;
 };
 type Command = [string, ...unknown[]];
 
@@ -30,6 +40,9 @@ const COOKIE = '_pulse_id';
 const MAX_BATCH = 20;
 const FLUSH_MS = 2000;
 const UTM_KEYS = ['source', 'medium', 'campaign', 'content', 'term'];
+const ATTRIBUTION_STORAGE_KEY = 'pulse:attribution';
+const PULSE_LINK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const META_COOKIE_VALUE = /^[A-Za-z0-9._:-]+$/;
 
 function takeSetupToken(): string | null {
 	const match = new RegExp(`(?:^#|&)${SETUP_PARAM}=([\\w-]+)`).exec(location.hash);
@@ -93,26 +106,67 @@ function anonymousId(): string {
 	return id;
 }
 
-function attribution(): { utm: Record<string, string>; fbclid?: string } {
+function cookie(name: string, max: number): string {
+	try {
+		const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+		const value = match?.[1] ?? '';
+		return value.length <= max && META_COOKIE_VALUE.test(value) ? value : '';
+	} catch {
+		return '';
+	}
+}
+
+function attribution(): Attribution & { fbp?: string } {
 	const params = new URLSearchParams(location.search);
-	const current: { utm: Record<string, string>; fbclid?: string } = { utm: {} };
+	const current: Attribution = { utm: {} };
 	for (const key of UTM_KEYS) {
 		const value = params.get(`utm_${key}`);
 		if (value) current.utm[key] = value.slice(0, 200);
 	}
 	const fbclid = params.get('fbclid');
 	if (fbclid) current.fbclid = fbclid.slice(0, 500);
+	const pl = params.get('pl');
+	if (pl && PULSE_LINK_ID.test(pl)) current.pl = pl;
 
+	let stored: Attribution | null = null;
 	try {
-		const stored = sessionStorage.getItem('pulse:attribution');
-		if (stored) return JSON.parse(stored) as typeof current;
-		if (Object.keys(current.utm).length || current.fbclid) {
-			sessionStorage.setItem('pulse:attribution', JSON.stringify(current));
-		}
+		const value = sessionStorage.getItem(ATTRIBUTION_STORAGE_KEY);
+		if (value) stored = JSON.parse(value) as Attribution;
 	} catch {
 		//
 	}
-	return current;
+
+	const result: Attribution = stored
+		? { ...stored, utm: stored.utm ?? {} }
+		: { utm: current.utm, fbclid: current.fbclid };
+	let changed = !stored && (Object.keys(current.utm).length > 0 || Boolean(current.fbclid));
+	if (current.pl) {
+		result.pl = current.pl;
+		changed = true;
+	}
+
+	const fbp = cookie('_fbp', 100);
+	const cookieFbc = cookie('_fbc', 200);
+	if (cookieFbc) result.fbc = cookieFbc;
+	else if (!result.fbc && result.fbclid) {
+		const timestamp = result.fbclidCapturedAt ?? Date.now();
+		const calculated = `fb.1.${timestamp}.${result.fbclid}`;
+		if (calculated.length <= 200 && META_COOKIE_VALUE.test(calculated)) {
+			result.fbc = calculated;
+			result.fbclidCapturedAt = timestamp;
+			changed = true;
+		}
+	}
+
+	if (changed) {
+		try {
+			sessionStorage.setItem(ATTRIBUTION_STORAGE_KEY, JSON.stringify(result));
+		} catch {
+			//
+		}
+	}
+
+	return { ...result, fbp };
 }
 
 class Pixel {
@@ -266,8 +320,8 @@ class Pixel {
 
 	private track(name: string, ruleId?: string, lead?: PulseEvent['lead']): void {
 		if (this.stopped) return;
-		const { utm, fbclid } = attribution();
-		this.queue.push({
+		const { utm, fbclid, pl, fbp, fbc } = attribution();
+		const event: PulseEvent = {
 			id: uuid(),
 			name,
 			ruleId,
@@ -277,8 +331,12 @@ class Pixel {
 			sid: this.sid,
 			utm,
 			fbclid,
-			lead
-		});
+			lead,
+		};
+		if (pl) event.pl = pl;
+		if (fbp) event.fbp = fbp;
+		if (fbc) event.fbc = fbc;
+		this.queue.push(event);
 
 		if (this.queue.length >= MAX_BATCH) this.flush();
 		else if (!this.timer) this.timer = setTimeout(() => this.flush(), FLUSH_MS);
@@ -313,13 +371,14 @@ class Pixel {
 	const script = document.currentScript as HTMLScriptElement | null;
 	if (!script?.src) return;
 
-	const api = (script.dataset.api || __PULSE_API_URL__).replace(/\/+$/, '');
 	const token = takeSetupToken();
 
 	if (token) {
-		loadEditor(script, api, token);
+		loadEditor(script, __PULSE_API_URL__, token);
 		return;
 	}
+
+	const api = (script.dataset.api || __PULSE_API_URL__).replace(/\/+$/, '');
 
 	const key = script.dataset.pixel ?? '';
 	if (!/^PX_[A-Za-z0-9]{20}$/.test(key)) return;
