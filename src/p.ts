@@ -23,6 +23,7 @@ type PulseEvent = {
 	fbp?: string;
 	fbc?: string;
 	lead?: { values: Record<string, string | boolean> };
+	eng?: { t: number; s: number };
 };
 type Attribution = {
 	utm: Record<string, string>;
@@ -42,6 +43,10 @@ const FLUSH_MS = 2000;
 const UTM_KEYS = ['source', 'medium', 'campaign', 'content', 'term'];
 const ATTRIBUTION_STORAGE_KEY = 'pulse:attribution';
 const PULSE_LINK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const ACTIVE_WINDOW_MS = 10000;
+const SCROLL_THROTTLE_MS = 200;
+const MIN_ENGAGED_SECONDS = 2;
+const ACTIVITY_EVENTS = ['scroll', 'click', 'keydown', 'pointermove', 'touchstart'] as const;
 const META_COOKIE_VALUE = /^[A-Za-z0-9._:-]+$/;
 
 function takeSetupToken(): string | null {
@@ -178,6 +183,13 @@ class Pixel {
 	private started = false;
 	private stopped = false;
 	private aid = '';
+	private pageHref = '';
+	private activeMs = 0;
+	private maxScroll = 0;
+	private sentScroll = 0;
+	private lastTick = 0;
+	private lastActivity = 0;
+	private lastScrollAt = 0;
 	private readonly sid = session('pulse:sid', uuid);
 
 	constructor(
@@ -193,10 +205,23 @@ class Pixel {
 
 		addEventListener('click', this.onClick, { capture: true, passive: true });
 		document.addEventListener('submit', this.onSubmit, { capture: true });
-		addEventListener('pagehide', () => this.flush());
-		document.addEventListener('visibilitychange', () => {
-			if (document.visibilityState === 'hidden') this.flush();
+		addEventListener('pagehide', () => {
+			this.sendEngaged(true);
+			this.flush();
 		});
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') {
+				this.sendEngaged(true);
+				this.flush();
+			} else {
+				const now = Date.now();
+				this.lastTick = now;
+				this.lastActivity = now;
+			}
+		});
+		for (const name of ACTIVITY_EVENTS) {
+			addEventListener(name, () => this.onActivity(name), { capture: true, passive: true });
+		}
 
 		for (const method of ['pushState', 'replaceState'] as const) {
 			const original = history[method];
@@ -212,6 +237,70 @@ class Pixel {
 		this.pageView();
 	}
 
+	private resetEngagement(): void {
+		const now = Date.now();
+		this.pageHref = location.href.slice(0, 2048);
+		this.activeMs = 0;
+		this.maxScroll = 0;
+		this.sentScroll = 0;
+		this.lastTick = now;
+		this.lastActivity = now;
+	}
+
+	private account(now: number): void {
+		if (document.visibilityState === 'visible') {
+			const until = Math.min(now, this.lastActivity + ACTIVE_WINDOW_MS);
+			if (until > this.lastTick) this.activeMs += until - this.lastTick;
+		}
+		this.lastTick = now;
+	}
+
+	private measureScroll(): void {
+		try {
+			const root = document.documentElement;
+			const total = Math.max(root.scrollHeight, document.body?.scrollHeight ?? 0);
+			const height = innerHeight;
+			const depth =
+				total <= height ? 100 : Math.floor(((scrollY + height) / total) * 100);
+			const value = Math.min(100, Math.max(0, depth));
+			if (value > this.maxScroll) this.maxScroll = value;
+		} catch {
+			//
+		}
+	}
+
+	private onActivity(name: (typeof ACTIVITY_EVENTS)[number]): void {
+		try {
+			const now = Date.now();
+			this.account(now);
+			this.lastActivity = now;
+			if (name === 'scroll' && now - this.lastScrollAt >= SCROLL_THROTTLE_MS) {
+				this.lastScrollAt = now;
+				this.measureScroll();
+			}
+		} catch {
+			//
+		}
+	}
+
+	private sendEngaged(measure: boolean): void {
+		try {
+			if (this.stopped || !this.pageHref) return;
+			this.account(Date.now());
+			if (measure) this.measureScroll();
+			const seconds = Math.min(1800, Math.floor(this.activeMs / 1000));
+			if (seconds < MIN_ENGAGED_SECONDS && this.maxScroll <= this.sentScroll) return;
+			this.track('Engaged', undefined, undefined, {
+				url: this.pageHref,
+				eng: { t: seconds, s: this.maxScroll }
+			});
+			this.activeMs = 0;
+			this.sentScroll = this.maxScroll;
+		} catch {
+			//
+		}
+	}
+
 	private pageUrl(): string {
 		return `${location.origin}${location.pathname}`;
 	}
@@ -219,7 +308,12 @@ class Pixel {
 	private pageView(): void {
 		const page = this.pageUrl();
 		if (page === this.lastPage) return;
+		if (this.lastPage) {
+			this.sendEngaged(false);
+			this.flush();
+		}
 		this.lastPage = page;
+		this.resetEngagement();
 		this.loadRules(page);
 		this.track('PageView');
 	}
@@ -318,14 +412,19 @@ class Pixel {
 		document.cookie = `${COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
 	}
 
-	private track(name: string, ruleId?: string, lead?: PulseEvent['lead']): void {
+	private track(
+		name: string,
+		ruleId?: string,
+		lead?: PulseEvent['lead'],
+		engaged?: { url: string; eng: NonNullable<PulseEvent['eng']> }
+	): void {
 		if (this.stopped) return;
 		const { utm, fbclid, pl, fbp, fbc } = attribution();
 		const event: PulseEvent = {
 			id: uuid(),
 			name,
 			ruleId,
-			url: location.href.slice(0, 2048),
+			url: engaged?.url ?? location.href.slice(0, 2048),
 			referrer: document.referrer.slice(0, 2048),
 			aid: this.aid,
 			sid: this.sid,
@@ -333,6 +432,7 @@ class Pixel {
 			fbclid,
 			lead,
 		};
+		if (engaged) event.eng = engaged.eng;
 		if (pl) event.pl = pl;
 		if (fbp) event.fbp = fbp;
 		if (fbc) event.fbc = fbc;
